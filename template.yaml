@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  python-face-rekognition-test
+
+  Sample SAM Template for python-face-rekognition-test
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Layers: #add pill (Globally) layer in template: https://github.com/keithrozario/Klayers
+      - arn:aws:lambda:us-west-2:770693421928:layer:Klayers-p310-Pillow:9
+    Environment:
+      Variables:
+        DYNAMODB_TABLE: !Ref Table
+        REGION_NAME: !Ref Region
+
+Parameters:
+  Table:
+    Type: String
+    Default: Faces
+  Region:
+    Type: String
+    Default: us-west-2
+Resources:
+
+  AddFaceRekognitionFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: handler/
+      Description: An Amazon S3 trigger that uses rekognition APIs to detect faces
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Architectures:
+        - x86_64
+      Policies: 
+       # - AWSLambdaBasicExecutionRole
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table 
+        - Version: '2012-10-17' 
+          Statement:  # must add this in order for upload to s3 to work!!!
+           - Effect: Allow
+             Action: 's3:*'
+             Resource: '*'
+           - Effect: Allow
+             Action:
+              - 'rekognition:CompareFaces'
+              - 'rekognition:DetectFaces'
+              - 'rekognition:DetectLabels'
+             Resource: '*'
+           - Effect: Allow
+             Action:
+               - 'rekognition:CreateCollection'
+               - 'rekognition:IndexFaces'
+             Resource: '*'
+              
+           #- RekognitionDetectOnlyPolicy: {}
+      Events:
+        AddFace:
+          Type: S3 # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Bucket: !Ref SrcBucket
+            Events: s3:ObjectCreated:*
+  ListFacesFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: handler/
+      Handler: app.list_faces
+      Runtime: python3.10
+      Architectures:
+        - x86_64
+      Policies: 
+        - DynamoDBReadPolicy: #just read!
+            TableName: !Ref Table 
+      Events:
+        ListFaces:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /faces
+            Method: get
+
+  FacesTable:
+       Type: AWS::DynamoDB::Table
+       Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: !Ref Table
+  SrcBucket:
+    Type: AWS::S3::Bucket
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  GetFacesFunction:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/faces/"
+
